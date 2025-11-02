@@ -27,54 +27,76 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// ...keep the top imports & GET handler unchanged...
+
 export async function PUT(request: NextRequest) {
   try {
     const user = requireAuth(request);
     const body = await request.json();
-    const { displayName, email, bio, profileImage } = updateUserSchema.parse(body);
+    const { displayName, email, bio, profileImage } =
+      updateUserSchema.parse(body);
 
-    let profileImageUrl = undefined;
-
-    // Upload profile image if provided
+    let profileImageUrl: string | undefined;
     if (profileImage) {
-      const uploadResult = await uploadImage(profileImage, "quilkalam/profiles");
+      const uploadResult = await uploadImage(
+        profileImage,
+        "quilkalam/profiles"
+      );
       profileImageUrl = uploadResult.url;
     }
 
-    // Build update query
-    const updates: string[] = [];
-    const values: any[] = [];
+    // Build update query pieces
+    const setParts: string[] = [];
+    const params: any[] = [];
+
+    const pushParam = (val: any) => {
+      params.push(val);
+      return params.length; // 1-based index for $ placeholders
+    };
 
     if (displayName !== undefined) {
-      updates.push(`display_name = $${updates.length + 1}`);
-      values.push(displayName);
+      const idx = pushParam(displayName);
+      setParts.push(`display_name = $${idx}`);
     }
     if (email !== undefined) {
-      updates.push(`email = $${updates.length + 1}`);
-      values.push(email);
+      const idx = pushParam(email);
+      setParts.push(`email = $${idx}`);
     }
     if (bio !== undefined) {
-      updates.push(`bio = $${updates.length + 1}`);
-      values.push(bio);
+      const idx = pushParam(bio);
+      setParts.push(`bio = $${idx}`);
     }
-    if (profileImageUrl) {
-      updates.push(`profile_image_url = $${updates.length + 1}`);
-      values.push(profileImageUrl);
-    }
-
-    if (updates.length === 0) {
-      return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+    if (profileImageUrl !== undefined) {
+      const idx = pushParam(profileImageUrl);
+      setParts.push(`profile_image_url = $${idx}`);
     }
 
-    updates.push(`updated_at = NOW()`);
+    if (setParts.length === 0) {
+      return NextResponse.json(
+        { error: "No fields to update" },
+        { status: 400 }
+      );
+    }
 
-    const result = await sql`
+    // Always update updated_at
+    setParts.push(`updated_at = NOW()`);
+
+    // Append the user id as the final param for WHERE
+    const userIdParamIndex = pushParam(user.userId);
+
+    // Build final SQL string with positional placeholders
+    const query = `
       UPDATE users
-      SET ${sql.unsafe(updates.join(", "))}
-      WHERE id = ${user.userId}
+      SET ${setParts.join(", ")}
+      WHERE id = $${userIdParamIndex}
       RETURNING id, phone_number, display_name, email, profile_image_url, bio
     `;
 
+    // Execute query. Many Neon/pg helpers accept (queryString, paramsArray).
+    // If your `sql` helper accepts (query, params), the next line will work:
+    const result = await sql(query, params);
+
+    // If your `sql` helper only supports tagged templates, see note below.
     return NextResponse.json({ success: true, user: result[0] });
   } catch (error: any) {
     console.error("Update profile error:", error);

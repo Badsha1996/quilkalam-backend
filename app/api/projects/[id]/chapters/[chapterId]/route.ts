@@ -11,13 +11,22 @@ const updateChapterSchema = z.object({
   orderIndex: z.number().optional(),
 });
 
+type RouteContext = {
+  params: Promise<{
+    id: string;
+    chapterId: string;
+  }>;
+};
+
 // GET single chapter
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string; chapterId: string } }
+  context: RouteContext
 ) {
   try {
-    const { id: projectId, chapterId } = params;
+    const params = await context.params;
+    const projectId = params.id;
+    const chapterId = params.chapterId;
 
     const result = await sql`
       SELECT *
@@ -45,11 +54,13 @@ export async function GET(
 // PUT - Update chapter
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string; chapterId: string } }
+  context: RouteContext
 ) {
   try {
     const user = requireAuth(request);
-    const { id: projectId, chapterId } = params;
+    const params = await context.params;
+    const projectId = params.id;
+    const chapterId = params.chapterId;
     const body = await request.json();
     const data = updateChapterSchema.parse(body);
 
@@ -77,15 +88,15 @@ export async function PUT(
     const queryParams: any[] = [];
 
     if (data.name !== undefined) {
-      setParts.push(`name = ${setParts.length + 1}`);
+      setParts.push(`name = $${setParts.length + 1}`);
       queryParams.push(data.name);
     }
     if (data.description !== undefined) {
-      setParts.push(`description = ${setParts.length + 1}`);
+      setParts.push(`description = $${setParts.length + 1}`);
       queryParams.push(data.description);
     }
     if (data.content !== undefined) {
-      setParts.push(`content = ${setParts.length + 1}`);
+      setParts.push(`content = $${setParts.length + 1}`);
       queryParams.push(data.content);
 
       // Calculate word count
@@ -93,15 +104,15 @@ export async function PUT(
         .trim()
         .split(/\s+/)
         .filter(w => w.length > 0).length;
-      setParts.push(`word_count = ${setParts.length + 1}`);
+      setParts.push(`word_count = $${setParts.length + 1}`);
       queryParams.push(wordCount);
     }
     if (data.metadata !== undefined) {
-      setParts.push(`metadata = ${setParts.length + 1}`);
+      setParts.push(`metadata = $${setParts.length + 1}`);
       queryParams.push(JSON.stringify(data.metadata));
     }
     if (data.orderIndex !== undefined) {
-      setParts.push(`order_index = ${setParts.length + 1}`);
+      setParts.push(`order_index = $${setParts.length + 1}`);
       queryParams.push(data.orderIndex);
     }
 
@@ -119,7 +130,7 @@ export async function PUT(
     const query = `
       UPDATE published_items
       SET ${setParts.join(", ")}
-      WHERE id = ${queryParams.length - 1} AND project_id = ${queryParams.length}
+      WHERE id = $${queryParams.length - 1} AND project_id = $${queryParams.length}
       RETURNING *
     `;
 
@@ -154,11 +165,13 @@ export async function PUT(
 // DELETE chapter
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string; chapterId: string } }
+  context: RouteContext
 ) {
   try {
     const user = requireAuth(request);
-    const { id: projectId, chapterId } = params;
+    const params = await context.params;
+    const projectId = params.id;
+    const chapterId = params.chapterId;
 
     // Check ownership
     const projectResult = await sql`

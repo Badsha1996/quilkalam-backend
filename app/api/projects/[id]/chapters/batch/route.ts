@@ -3,6 +3,8 @@ import { sql } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 import { z } from "zod";
 
+type RouteContext<P> = { params: P | Promise<P> };
+
 const batchChapterSchema = z.object({
   chapters: z.array(
     z.object({
@@ -20,11 +22,11 @@ const batchChapterSchema = z.object({
 // POST - Add multiple chapters at once
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: RouteContext<{ id: string }>
 ) {
   try {
     const user = requireAuth(request);
-    const projectId = params.id;
+    const { id: projectId } = await context.params;
     const body = await request.json();
     const { chapters } = batchChapterSchema.parse(body);
 
@@ -34,20 +36,14 @@ export async function POST(
     `;
 
     if (projectResult.length === 0) {
-      return NextResponse.json(
-        { error: "Project not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
     if (projectResult[0].user_id !== user.userId) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
-    const insertedChapters = [];
+    const insertedChapters: any[] = [];
 
     // Insert chapters one by one to handle dependencies
     for (const chapter of chapters) {
@@ -62,7 +58,7 @@ export async function POST(
       }
 
       const wordCount = chapter.content
-        ? chapter.content.trim().split(/\s+/).filter(w => w.length > 0).length
+        ? chapter.content.trim().split(/\s+/).filter((w: string) => w.length > 0).length
         : 0;
 
       const result = await sql`
@@ -111,11 +107,11 @@ export async function POST(
 // PUT - Update multiple chapters at once
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: RouteContext<{ id: string }>
 ) {
   try {
     const user = requireAuth(request);
-    const projectId = params.id;
+    const { id: projectId } = await context.params;
     const body = await request.json();
 
     // Check ownership
@@ -124,20 +120,14 @@ export async function PUT(
     `;
 
     if (projectResult.length === 0) {
-      return NextResponse.json(
-        { error: "Project not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
     if (projectResult[0].user_id !== user.userId) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
-    const updates = body.updates as Array<{
+    const updates = (body.updates || []) as Array<{
       id: string;
       name?: string;
       description?: string;
@@ -146,56 +136,70 @@ export async function PUT(
       metadata?: any;
     }>;
 
-    const updatedChapters = [];
+    const updatedChapters: any[] = [];
 
     for (const update of updates) {
+      // Build parameterized set parts
       const setParts: string[] = [];
       const queryParams: any[] = [];
-      
+
+      const pushParam = (value: any) => {
+        queryParams.push(value);
+        return queryParams.length; // 1-based index for positional params in the constructed raw SQL
+      };
+
       if (update.name !== undefined) {
-        setParts.push(`name = ${setParts.length + 1}`);
-        queryParams.push(update.name);
+        const idx = pushParam(update.name);
+        setParts.push(`name = $${idx}`);
       }
       if (update.description !== undefined) {
-        setParts.push(`description = ${setParts.length + 1}`);
-        queryParams.push(update.description);
+        const idx = pushParam(update.description);
+        setParts.push(`description = $${idx}`);
       }
       if (update.orderIndex !== undefined) {
-        setParts.push(`order_index = ${setParts.length + 1}`);
-        queryParams.push(update.orderIndex);
+        const idx = pushParam(update.orderIndex);
+        setParts.push(`order_index = $${idx}`);
       }
-      
+
       if (update.content !== undefined) {
         const wordCount = update.content
           .trim()
           .split(/\s+/)
-          .filter(w => w.length > 0).length;
-        setParts.push(`content = ${setParts.length + 1}`);
-        queryParams.push(update.content);
-        setParts.push(`word_count = ${setParts.length + 1}`);
-        queryParams.push(wordCount);
+          .filter((w) => w.length > 0).length;
+        const idxContent = pushParam(update.content);
+        setParts.push(`content = $${idxContent}`);
+        const idxWC = pushParam(wordCount);
+        setParts.push(`word_count = $${idxWC}`);
       }
-      
-      if (update.metadata !== undefined) {
-        setParts.push(`metadata = ${setParts.length + 1}`);
-        queryParams.push(JSON.stringify(update.metadata));
-      }
-      
-      setParts.push(`updated_at = NOW()`);
-      queryParams.push(update.id);
-      queryParams.push(projectId);
 
-      if (setParts.length > 1) { // More than just updated_at
+      if (update.metadata !== undefined) {
+        const idx = pushParam(JSON.stringify(update.metadata));
+        setParts.push(`metadata = $${idx}`);
+      }
+
+      // Always update updated_at
+      setParts.push(`updated_at = NOW()`);
+
+      // Only proceed if there are actual fields to set (besides updated_at)
+      if (setParts.length > 0) {
+        // Append id and projectId as final params
+        const idParamIndex = pushParam(update.id);
+        const projectIdParamIndex = pushParam(projectId);
+
+        // Build raw SQL string with positional params ($1, $2, ...)
         const query = `
           UPDATE published_items
           SET ${setParts.join(", ")}
-          WHERE id = ${queryParams.length - 1} AND project_id = ${queryParams.length}
+          WHERE id = $${idParamIndex} AND project_id = $${projectIdParamIndex}
           RETURNING *
         `;
-        
+
+        // Depending on your `sql` helper, you may be able to pass raw query + params.
+        // If your `sql` helper only supports tagged templates, replace this block with
+        // an appropriate API (e.g., using pg client). I'm keeping a generic interface here:
         const result = await sql(query, queryParams);
-        
-        if (result.length > 0) {
+
+        if (result && result.length > 0) {
           updatedChapters.push(result[0]);
         }
       }

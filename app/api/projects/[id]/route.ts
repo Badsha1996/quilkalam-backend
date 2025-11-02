@@ -2,14 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 import { requireAuth } from "@/lib/auth";
 
+type RouteContext<P> = { params: P | Promise<P> };
+
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: RouteContext<{ id: string }>
 ) {
   try {
-    const projectId = params.id;
+    const { id: projectId } = await context.params;
 
-    // Get project details
+    // Get project details (only public projects in this endpoint)
     const projectResult = await sql`
       SELECT 
         p.*,
@@ -21,11 +23,8 @@ export async function GET(
       WHERE p.id = ${projectId} AND p.is_public = TRUE
     `;
 
-    if (projectResult.length === 0) {
-      return NextResponse.json(
-        { error: "Project not found" },
-        { status: 404 }
-      );
+    if (!projectResult || projectResult.length === 0) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
     const project = projectResult[0];
@@ -38,16 +37,16 @@ export async function GET(
       ORDER BY order_index ASC
     `;
 
-    // Increment view count
+    // Increment view count (async fire-and-forget is fine, but await to ensure DB update)
     await sql`
       UPDATE published_projects
-      SET view_count = view_count + 1
+      SET view_count = COALESCE(view_count, 0) + 1
       WHERE id = ${projectId}
     `;
 
     return NextResponse.json({
       project,
-      items,
+      items: items || [],
     });
   } catch (error: any) {
     console.error("Get project error:", error);
@@ -60,11 +59,11 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: RouteContext<{ id: string }>
 ) {
   try {
     const user = requireAuth(request);
-    const projectId = params.id;
+    const { id: projectId } = await context.params;
     const body = await request.json();
 
     // Check ownership
@@ -72,58 +71,74 @@ export async function PUT(
       SELECT user_id FROM published_projects WHERE id = ${projectId}
     `;
 
-    if (projectResult.length === 0) {
-      return NextResponse.json(
-        { error: "Project not found" },
-        { status: 404 }
-      );
+    if (!projectResult || projectResult.length === 0) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
     if (projectResult[0].user_id !== user.userId) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
-    // Update project metadata
-    const updates: string[] = [];
-    const values: any[] = [];
+    // Build parameterized UPDATE dynamically
+    const setParts: string[] = [];
+    const params: any[] = [];
+
+    const pushParam = (val: any) => {
+      params.push(val);
+      return params.length; // 1-based index used in $n placeholders
+    };
 
     if (body.title !== undefined) {
-      updates.push(`title = ${updates.length + 1}`);
-      values.push(body.title);
+      const idx = pushParam(body.title);
+      setParts.push(`title = $${idx}`);
     }
     if (body.description !== undefined) {
-      updates.push(`description = ${updates.length + 1}`);
-      values.push(body.description);
+      const idx = pushParam(body.description);
+      setParts.push(`description = $${idx}`);
     }
     if (body.genre !== undefined) {
-      updates.push(`genre = ${updates.length + 1}`);
-      values.push(body.genre);
+      const idx = pushParam(body.genre);
+      setParts.push(`genre = $${idx}`);
     }
     if (body.coverImage !== undefined) {
-      updates.push(`cover_image_url = ${updates.length + 1}`);
-      values.push(body.coverImage);
+      const idx = pushParam(body.coverImage);
+      setParts.push(`cover_image_url = $${idx}`);
     }
     if (body.categories !== undefined) {
-      updates.push(`categories = ${updates.length + 1}`);
-      values.push(body.categories);
+      const idx = pushParam(body.categories);
+      setParts.push(`categories = $${idx}`);
     }
     if (body.tags !== undefined) {
-      updates.push(`tags = ${updates.length + 1}`);
-      values.push(body.tags);
+      const idx = pushParam(body.tags);
+      setParts.push(`tags = $${idx}`);
     }
 
-    if (updates.length > 0) {
-      updates.push(`updated_at = NOW()`);
-      await sql`
+    // Always update updated_at if any real update present
+    if (setParts.length > 0) {
+      setParts.push(`updated_at = NOW()`);
+      // append projectId as final param for WHERE
+      const projectIdParamIndex = pushParam(projectId);
+
+      const query = `
         UPDATE published_projects
-        SET ${sql.unsafe(updates.join(", "))}
-        WHERE id = ${projectId}
+        SET ${setParts.join(", ")}
+        WHERE id = $${projectIdParamIndex}
+        RETURNING *
       `;
+
+      // Execute parameterized raw query (your `sql` helper should accept (query, params))
+      // If your `sql` helper is strictly tagged-template only, tell me which library so I can adapt.
+      const updated = await sql(query, params);
+
+      // Optionally return the updated project
+      if (updated && updated.length > 0) {
+        return NextResponse.json({ success: true, project: updated[0] });
+      } else {
+        return NextResponse.json({ success: true });
+      }
     }
 
+    // Nothing to update
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error("Update project error:", error);
@@ -136,29 +151,23 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: RouteContext<{ id: string }>
 ) {
   try {
     const user = requireAuth(request);
-    const projectId = params.id;
+    const { id: projectId } = await context.params;
 
     // Check ownership
     const projectResult = await sql`
       SELECT user_id FROM published_projects WHERE id = ${projectId}
     `;
 
-    if (projectResult.length === 0) {
-      return NextResponse.json(
-        { error: "Project not found" },
-        { status: 404 }
-      );
+    if (!projectResult || projectResult.length === 0) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
     if (projectResult[0].user_id !== user.userId) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
 
     // Delete project (cascade will delete items)

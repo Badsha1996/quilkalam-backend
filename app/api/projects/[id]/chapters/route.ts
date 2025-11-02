@@ -13,13 +13,18 @@ const createChapterSchema = z.object({
   orderIndex: z.number().default(0),
 });
 
+type RouteContext = {
+  params: Promise<{ id: string }>;
+};
+
 // GET all chapters for a project
 export async function GET(
   request: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  context: RouteContext
 ) {
   try {
-    const { id: projectId } = await context.params;
+    const params = await context.params;
+    const projectId = params.id;
 
     const chapters = await sql`
       SELECT *
@@ -41,11 +46,12 @@ export async function GET(
 // POST - Add new chapter
 export async function POST(
   request: NextRequest,
-  context: { params: Promise<{ id: string }> }
+  context: RouteContext
 ) {
   try {
     const user = requireAuth(request);
-    const { id: projectId } = await context.params;
+    const params = await context.params;
+    const projectId = params.id;
     const body = await request.json();
     const data = createChapterSchema.parse(body);
 
