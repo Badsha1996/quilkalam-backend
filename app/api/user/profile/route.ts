@@ -27,8 +27,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ...keep the top imports & GET handler unchanged...
-
 export async function PUT(request: NextRequest) {
   try {
     const user = requireAuth(request);

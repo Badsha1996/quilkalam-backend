@@ -1,5 +1,4 @@
 # Quilkalam Backend API
-
 A serverless Next.js backend for the Quilkalam writing application, deployed on Vercel with NeonDB and Cloudinary.
 
 ## 🚀 Features

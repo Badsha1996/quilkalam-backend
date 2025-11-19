@@ -37,6 +37,7 @@ export async function initializeDatabase() {
         genre TEXT,
         author_name TEXT,
         cover_image_url TEXT,
+        back_image_url TEXT,
         word_count INTEGER DEFAULT 0,
         
         isbn TEXT,

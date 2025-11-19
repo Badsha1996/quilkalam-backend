@@ -28,6 +28,7 @@ export const publishProjectSchema = z.object({
   genre: z.string().optional(),
   authorName: z.string().optional(),
   coverImage: z.string().optional(), // base64
+  backImage: z.string().optional(),
   wordCount: z.number().default(0),
   isbn: z.string().optional(),
   publisher: z.string().optional(),

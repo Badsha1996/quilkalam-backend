@@ -11,26 +11,46 @@ export async function POST(request: NextRequest) {
     const data = publishProjectSchema.parse(body);
 
     let coverImageUrl = data.coverImage;
+    let backImageUrl = data.backImage;
 
     // Upload cover image if provided
     if (data.coverImage && data.coverImage.startsWith("data:")) {
-      const uploadResult = await uploadImage(data.coverImage, "quilkalam/covers");
+      const uploadResult = await uploadImage(
+        data.coverImage,
+        "quilkalam/covers"
+      );
       coverImageUrl = uploadResult.url;
+    }
+
+    if (data.backImage && data.backImage.startsWith("data:")) {
+      const uploadResult = await uploadImage(
+        data.backImage,
+        "quilkalam/covers"
+      );
+      backImageUrl = uploadResult.url;
     }
 
     // Insert project
     const projectResult = await sql`
       INSERT INTO published_projects (
         user_id, type, title, description, genre, author_name,
-        cover_image_url, word_count, isbn, publisher, publication_date,
+        cover_image_url,back_image_url, word_count, isbn, publisher, publication_date,
         price, language, copyright_text, categories, tags,
         is_public, allow_comments, allow_downloads
       ) VALUES (
-        ${user.userId}, ${data.type}, ${data.title}, ${data.description || null},
-        ${data.genre || null}, ${data.authorName || null}, ${coverImageUrl || null},
+        ${user.userId}, ${data.type}, ${data.title}, ${
+      data.description || null
+    },
+        ${data.genre || null}, ${data.authorName || null}, ${
+      coverImageUrl || null
+    },${backImageUrl || null},
         ${data.wordCount}, ${data.isbn || null}, ${data.publisher || null},
-        ${data.publicationDate || null}, ${data.price || null}, ${data.language},
-        ${data.copyrightText || null}, ${data.categories || []}, ${data.tags || []},
+        ${data.publicationDate || null}, ${data.price || null}, ${
+      data.language
+    },
+        ${data.copyrightText || null}, ${data.categories || []}, ${
+      data.tags || []
+    },
         ${data.isPublic}, ${data.allowComments}, ${data.allowDownloads}
       )
       RETURNING id, created_at
@@ -40,10 +60,12 @@ export async function POST(request: NextRequest) {
 
     // Insert items
     const itemIdMap = new Map<string, string>();
-    
+
     for (const item of data.items) {
-      const parentId = item.parentItemId ? itemIdMap.get(item.parentItemId) : null;
-      
+      const parentId = item.parentItemId
+        ? itemIdMap.get(item.parentItemId)
+        : null;
+
       const itemResult = await sql`
         INSERT INTO published_items (
           project_id, parent_item_id, item_type, name, description,

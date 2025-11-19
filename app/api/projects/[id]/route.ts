@@ -104,6 +104,10 @@ export async function PUT(
       const idx = pushParam(body.coverImage);
       setParts.push(`cover_image_url = $${idx}`);
     }
+    if (body.backImage !== undefined) {
+      const idx = pushParam(body.backImage);
+      setParts.push(`back_image_url = $${idx}`);
+    }
     if (body.categories !== undefined) {
       const idx = pushParam(body.categories);
       setParts.push(`categories = $${idx}`);

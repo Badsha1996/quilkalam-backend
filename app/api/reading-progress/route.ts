@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
           rh.*,
           p.title,
           p.cover_image_url,
+          p.back_image_url,
           p.type,
           p.author_name
         FROM reading_history rh
