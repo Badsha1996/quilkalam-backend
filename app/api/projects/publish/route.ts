@@ -97,3 +97,14 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// api/projects/publish
+// i will pass userId 
+// it should give me all projects that in db
+export async function GET(request: NextRequest) {
+  try {
+    const user = requireAuth(request);
+    const body = await request.json();
+    
+  } catch (e) {}
+}

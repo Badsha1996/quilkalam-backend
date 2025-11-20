@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -19,23 +20,23 @@ export async function GET(request: NextRequest) {
     let paramIndex = 1;
 
     if (type) {
-      whereConditions.push(`type = ${paramIndex++}`);
+      whereConditions.push(`type = $${paramIndex++}`);
       queryParams.push(type);
     }
 
     if (genre) {
-      whereConditions.push(`genre = ${paramIndex++}`);
+      whereConditions.push(`genre = $${paramIndex++}`);
       queryParams.push(genre);
     }
 
     if (search) {
-      whereConditions.push(`(title ILIKE ${paramIndex} OR description ILIKE ${paramIndex})`);
+      whereConditions.push(`(title ILIKE $${paramIndex} OR description ILIKE $${paramIndex})`);
       queryParams.push(`%${search}%`);
       paramIndex++;
     }
 
     if (userId) {
-      whereConditions.push(`user_id = ${paramIndex++}`);
+      whereConditions.push(`user_id = $${paramIndex++}`);
       queryParams.push(userId);
     }
 
@@ -51,6 +52,9 @@ export async function GET(request: NextRequest) {
     const total = parseInt(countResult[0].total);
 
     // Get projects with user info
+    const limitParam = paramIndex++;
+    const offsetParam = paramIndex++;
+    
     const projectsQuery = `
       SELECT 
         p.*,
@@ -60,12 +64,13 @@ export async function GET(request: NextRequest) {
       LEFT JOIN users u ON p.user_id = u.id
       WHERE ${whereClause}
       ORDER BY p.published_at DESC
-      LIMIT ${paramIndex} OFFSET ${paramIndex + 1}
+      LIMIT $${limitParam} OFFSET $${offsetParam}
     `;
     
     const projects = await sql(projectsQuery, [...queryParams, limit, offset]);
 
     return NextResponse.json({
+      success: true,
       projects,
       pagination: {
         page,
@@ -77,7 +82,7 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error("Get projects error:", error);
     return NextResponse.json(
-      { error: error.message || "Failed to fetch projects" },
+      { success: false, error: error.message || "Failed to fetch projects" },
       { status: 500 }
     );
   }
