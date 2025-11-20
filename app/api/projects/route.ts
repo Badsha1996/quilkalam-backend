@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 
-
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
@@ -15,7 +14,10 @@ export async function GET(request: NextRequest) {
     const offset = (page - 1) * limit;
 
     // Build WHERE conditions and parameters
-    let whereConditions: string[] = ["is_public = TRUE", "status = 'published'"];
+    let whereConditions: string[] = [
+      "is_public = TRUE",
+      "status = 'published'",
+    ];
     const queryParams: any[] = [];
     let paramIndex = 1;
 
@@ -30,7 +32,9 @@ export async function GET(request: NextRequest) {
     }
 
     if (search) {
-      whereConditions.push(`(title ILIKE $${paramIndex} OR description ILIKE $${paramIndex})`);
+      whereConditions.push(
+        `(title ILIKE $${paramIndex} OR description ILIKE $${paramIndex})`
+      );
       queryParams.push(`%${search}%`);
       paramIndex++;
     }
@@ -54,7 +58,7 @@ export async function GET(request: NextRequest) {
     // Get projects with user info
     const limitParam = paramIndex++;
     const offsetParam = paramIndex++;
-    
+
     const projectsQuery = `
       SELECT 
         p.*,
@@ -66,7 +70,7 @@ export async function GET(request: NextRequest) {
       ORDER BY p.published_at DESC
       LIMIT $${limitParam} OFFSET $${offsetParam}
     `;
-    
+
     const projects = await sql(projectsQuery, [...queryParams, limit, offset]);
 
     return NextResponse.json({
